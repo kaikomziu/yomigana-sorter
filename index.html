@@ -24,6 +24,9 @@
     button { border: 0; border-radius: 9px; padding: 11px 22px; font: inherit; font-weight: 700; color: #fff; background: #2864d7; cursor: pointer; }
     button:hover { background: #1f53ba; }
     button:disabled { cursor: wait; opacity: .65; }
+    select { border: 1px solid #c8d0dc; border-radius: 9px; padding: 10px 12px; font: inherit; color: inherit; background: #fff; cursor: pointer; }
+    .secondary-button { background: #596579; }
+    .secondary-button:hover { background: #465267; }
     .status { color: #5b6470; font-size: .92rem; }
     .result-label { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
     .hint { color: #727b88; font-size: .85rem; font-weight: 400; }
@@ -41,6 +44,11 @@
       <textarea id="source" spellcheck="false" placeholder="例：&#10;/おはよう&#10;/しね&#10;/かるびの迷言集"></textarea>
 
       <div class="actions">
+        <label for="sortOrder" class="sr-only">並び順</label>
+        <select id="sortOrder" aria-label="並び順">
+          <option value="asc">昇順（あ→ん / A→Z）</option>
+          <option value="desc">逆順（ん→あ / Z→A）</option>
+        </select>
         <button id="sortButton" type="button">並べ替え</button>
         <span id="status" class="status" aria-live="polite">辞書の読み込み準備中…</span>
       </div>
@@ -50,9 +58,12 @@
         <span class="hint">そのままコピーできます</span>
       </div>
       <textarea id="result" readonly spellcheck="false" placeholder="ここに並べ替え結果が表示されます"></textarea>
+      <div class="actions">
+        <button id="downloadButton" class="secondary-button" type="button" disabled>結果をダウンロード（.txt）</button>
+      </div>
     </section>
 
-    <footer>Version 1.0.0　変更履歴：2026-09-21 初版作成</footer>
+    <footer>Version 1.1.0　変更履歴：2026-09-21 逆順ソート・結果ダウンロードを追加</footer>
   </main>
 
   <!-- kuromoji.js本体。辞書は下のコードでCDNから読み込みます。 -->
@@ -62,7 +73,9 @@
 
     const source = document.getElementById('source');
     const result = document.getElementById('result');
+    const sortOrder = document.getElementById('sortOrder');
     const sortButton = document.getElementById('sortButton');
+    const downloadButton = document.getElementById('downloadButton');
     const status = document.getElementById('status');
     let tokenizer = null;
     let tokenizerPromise = null;
@@ -126,17 +139,34 @@
             numeric: false
           });
           // 同じ読みは入力順を維持する。
-          return comparison || a.index - b.index;
+          return comparison
+            ? (sortOrder.value === 'desc' ? -comparison : comparison)
+            : a.index - b.index;
         });
 
         result.value = sorted.map(item => item.line).join('\n');
-        status.textContent = `${sorted.length}行を並べ替えました。`;
+        downloadButton.disabled = sorted.length === 0;
+        const orderLabel = sortOrder.value === 'desc' ? '逆順' : '昇順';
+        status.textContent = `${sorted.length}行を${orderLabel}で並べ替えました。`;
       } catch (error) {
         console.error(error);
         status.textContent = '辞書の読み込みに失敗しました。ネット接続を確認してください。';
       } finally {
         sortButton.disabled = false;
       }
+    });
+
+    downloadButton.addEventListener('click', () => {
+      if (!result.value) return;
+      const blob = new Blob([result.value + '\n'], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'yomigana-sort-result.txt';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
     });
 
     loadTokenizer().then(() => {
