@@ -63,11 +63,10 @@
       </div>
     </section>
 
-    <footer>Version 1.1.0　変更履歴：2026-09-21 逆順ソート・結果ダウンロードを追加</footer>
+    <footer>Version 1.1.1　変更履歴：2026-09-22 読み込み固まり対策（非同期CDN・タイムアウト・代替CDN）</footer>
   </main>
 
-  <!-- kuromoji.js本体。辞書は下のコードでCDNから読み込みます。 -->
-  <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
+  <!-- kuromoji.js本体は、画面を固めないようJavaScriptから非同期で読み込みます。 -->
   <script>
     'use strict';
 
@@ -79,6 +78,43 @@
     const status = document.getElementById('status');
     let tokenizer = null;
     let tokenizerPromise = null;
+
+    const kuromojiSources = [
+      {
+        script: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js',
+        dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
+      },
+      {
+        script: 'https://unpkg.com/kuromoji@0.1.2/build/kuromoji.js',
+        dicPath: 'https://unpkg.com/kuromoji@0.1.2/dict/'
+      }
+    ];
+
+    function wait(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // CDN停止時にも画面を固めず、別CDNへ切り替える。
+    function loadScript(source) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        const timeout = setTimeout(() => {
+          script.remove();
+          reject(new Error('kuromoji.jsの読み込みがタイムアウトしました'));
+        }, 15000);
+        script.src = source.script;
+        script.onload = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+        script.onerror = () => {
+          clearTimeout(timeout);
+          script.remove();
+          reject(new Error('kuromoji.jsを読み込めませんでした'));
+        };
+        document.head.appendChild(script);
+      });
+    }
 
     // カタカナをひらがなへ変換する（長音記号などはそのまま保持）。
     function katakanaToHiragana(text) {
@@ -106,18 +142,42 @@
     function loadTokenizer() {
       if (tokenizerPromise) return tokenizerPromise;
       tokenizerPromise = new Promise((resolve, reject) => {
-        status.textContent = '辞書を読み込み中…';
-        kuromoji.builder({
-          // jsDelivr上のkuromoji辞書を使用（末尾の / が必要）。
-          dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
-        }).build((error, builtTokenizer) => {
-          if (error) {
-            tokenizerPromise = null;
-            reject(error);
-            return;
+        (async () => {
+          let selectedSource = null;
+          for (const source of kuromojiSources) {
+            try {
+              status.textContent = '解析エンジンを読み込み中…';
+              await loadScript(source);
+              selectedSource = source;
+              break;
+            } catch (error) {
+              console.warn(error.message);
+            }
           }
-          tokenizer = builtTokenizer;
-          resolve(tokenizer);
+          if (!selectedSource || typeof kuromoji === 'undefined') {
+            throw new Error('解析エンジンを読み込めませんでした');
+          }
+
+          status.textContent = '辞書を読み込み中…（初回は時間がかかります）';
+          await new Promise((resolveBuild, rejectBuild) => {
+            let settled = false;
+            const timeout = setTimeout(() => {
+              if (!settled) rejectBuild(new Error('辞書の読み込みがタイムアウトしました'));
+            }, 60000);
+            kuromoji.builder({ dicPath: selectedSource.dicPath }).build((error, builtTokenizer) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeout);
+              if (error) rejectBuild(error);
+              else resolveBuild(builtTokenizer);
+            });
+          }).then(builtTokenizer => {
+            tokenizer = builtTokenizer;
+            resolve(tokenizer);
+          });
+        })().catch(error => {
+          tokenizerPromise = null;
+          reject(error);
         });
       });
       return tokenizerPromise;
@@ -171,8 +231,9 @@
 
     loadTokenizer().then(() => {
       status.textContent = '準備完了';
-    }).catch(() => {
-      status.textContent = '辞書の読み込みに失敗しました。並べ替え時に再試行します。';
+    }).catch(error => {
+      console.error(error);
+      status.textContent = '読み込みに失敗しました。ネット接続を確認して、並べ替えボタンを再度押してください。';
     });
   </script>
 </body>
