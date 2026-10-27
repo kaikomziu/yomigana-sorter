@@ -63,7 +63,7 @@
       </div>
     </section>
 
-    <footer>Version 1.1.1　変更履歴：2026-09-22 読み込み固まり対策（非同期CDN・タイムアウト・代替CDN）</footer>
+    <footer>Version 1.1.2　変更履歴：2026-10-28 辞書とライブラリを同梱（辞書URLが崩れて固まる不具合を修正）</footer>
   </main>
 
   <!-- kuromoji.js本体は、画面を固めないようJavaScriptから非同期で読み込みます。 -->
@@ -79,15 +79,13 @@
     let tokenizer = null;
     let tokenizerPromise = null;
 
+    // 辞書は同じサイト内(dict/)から相対パスで読み込む。
+    // kuromojiは辞書パスを内部で結合する際に「https://」を「https:/」に崩してしまい、
+    // httpsのページでCDNの絶対URLを渡すと同じサイト内の別パスとして解釈されて404になり、
+    // 画面が固まるため、絶対URLは使わない。
     const kuromojiSources = [
-      {
-        script: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js',
-        dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/'
-      },
-      {
-        script: 'https://unpkg.com/kuromoji@0.1.2/build/kuromoji.js',
-        dicPath: 'https://unpkg.com/kuromoji@0.1.2/dict/'
-      }
+      { script: 'lib/kuromoji.js', dicPath: 'dict/' },
+      { script: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js', dicPath: 'dict/' }
     ];
 
     function wait(ms) {
